@@ -204,8 +204,8 @@ def test_incoming_and_outbox_roll_back_together(catalog, monkeypatch):
     dialogs = Dialogs(catalog, 999)
     enqueue = dialogs.storage.enqueue
 
-    def fail(chat, text, buttons=()):
-        enqueue(chat, text, buttons)
+    def fail(chat, text, buttons=(), **kwargs):
+        enqueue(chat, text, buttons, **kwargs)
         raise RuntimeError('disk failure simulation')
 
     monkeypatch.setattr(dialogs.storage, 'enqueue', fail)
@@ -307,14 +307,15 @@ def test_manager_can_browse_storefront_without_self_ticket(catalog, shop):
     dialogs = Dialogs(catalog, 999, storefront=shop)
     run(dialogs, 1, 999, '/start')
     assert 'Полотно' in messages(dialogs, 999)[-1].text
-    assert ['Звернення', 'shop:tickets'] in messages(dialogs, 999)[-1].buttons
+    assert ['Каталог тканин', 'shop:catalog'] in messages(dialogs, 999)[-1].buttons
+    assert ['Кабінет менеджера', 'shop:tickets'] in messages(dialogs, 999)[-1].buttons
     run(dialogs, 2, 999, '00123')
     assert messages(dialogs, 999)[-1].photo
     ask = messages(dialogs, 999)[-1].buttons[0][1]
     run(dialogs, 3, 999, callback_data=ask)
     assert 'Ви менеджер' in messages(dialogs, 999)[-1].text
     run(dialogs, 4, 999, callback_data='shop:tickets')
-    assert messages(dialogs, 999)[-1].text == 'Активні звернення: немає'
+    assert 'Активні звернення: немає' in messages(dialogs, 999)[-1].text
     assert not catalog.connection.execute('SELECT * FROM tickets').fetchall()
     assert dialogs.storage.dialog(999)['mode'] == 'BOT'
 

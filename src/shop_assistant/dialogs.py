@@ -6,6 +6,7 @@ import time
 from .catalog import Catalog
 from .storage import Storage
 from .storefront import Storefront
+from .support import Support
 
 
 class Dialogs:
@@ -19,12 +20,15 @@ class Dialogs:
         self.storage = Storage(catalog.connection)
         self.message_length, self.request_rate = message_length, request_rate
         self.rate_window, self.context_limit = rate_window, context_limit
+        self.topics_enabled = False
+        self.support = Support(self)
         # One serial update pipeline prevents overlapping transactions and update
         # dedup races on the shared SQLite connection, including during LLM awaits.
         self._lock = asyncio.Lock()
 
     async def handle(self, update_id: int, chat_id: int, text: str | None = None,
-                     callback_data: str | None = None, private: bool = True) -> None:
+                     callback_data: str | None = None, private: bool = True,
+                     reply_to_message_id: int | None = None, thread_id: int | None = None) -> None:
         if not private:
             return
         async with self._lock:
@@ -49,12 +53,15 @@ class Dialogs:
                     and clean and not clean.startswith('/') and not callback_data
                     and (not state or state['mode'] == 'BOT') and not exact
                     and not matches and not intent
+                    and chat_id != self.manager_id and thread_id is None
                     and self.llm is not None and not self._looks_like_sku(clean)):
                 try:
                     decision = await self.llm.resolve(clean)
                 except Exception:
                     decision = None
-            with db:
+            storefront_thread = (thread_id if thread_id is not None
+                                 and self.storage.topic_ticket(chat_id, thread_id) is None else None)
+            with self.storage.incoming_scope(chat_id, storefront_thread):
                 inserted = db.execute("INSERT OR IGNORE INTO incoming VALUES (?, ?)", (update_id, now))
                 if not inserted.rowcount:
                     return
@@ -63,13 +70,8 @@ class Dialogs:
                 if chat_id == self.manager_id and len(clean) > self.message_length:
                     self.storage.enqueue(chat_id, f"Повідомлення задовге. Надішліть до {self.message_length} символів.")
                     return
-                manager_command = clean.split(maxsplit=1)[0] if clean else ''
-                if chat_id == self.manager_id and (manager_command in ('/tickets', '/reply', '/bot', '/help')
-                                                  or callback_data == 'shop:tickets'):
-                    if len(clean) > self.message_length:
-                        self.storage.enqueue(chat_id, f"Повідомлення задовге. Надішліть до {self.message_length} символів.")
-                    else:
-                        self._manager('/tickets' if callback_data == 'shop:tickets' else clean)
+                if chat_id == self.manager_id and self.support.manager_input(
+                        clean, callback_data, reply_to_message_id, thread_id):
                     return
                 if not allowed:
                     self.storage.enqueue(chat_id, "Забагато запитів. Спробуйте трохи пізніше.")
@@ -79,13 +81,25 @@ class Dialogs:
                     self.storage.enqueue(chat_id, f"Повідомлення задовге. Надішліть до {self.message_length} символів.")
                     return
                 state = self.storage.dialog(chat_id)
+                if chat_id != self.manager_id and self.support.customer_input(chat_id, clean, callback_data, thread_id):
+                    return
                 if clean:
                     context = (state['context'] + '\nКлієнт: ' + clean)[-self.context_limit:]
                     db.execute("UPDATE dialogs SET context = ? WHERE chat_id = ?", (context, chat_id))
-                if state['mode'] == 'HUMAN':
+                if (state['mode'] == 'HUMAN' and not callback_data
+                        and (not self.topics_enabled or clean == '/manager'
+                             or (thread_id is not None and
+                                 self.storage.topic_ticket(chat_id, thread_id) == state['ticket']))):
+                    if clean in ('/start', '/help', '/manager', '/support'):
+                        self.support.show(state['ticket'], chat_id)
+                        return
                     if clean:
-                        self.storage.enqueue(self.manager_id, f"Звернення #{state['ticket']}\nКлієнт: {clean}")
-                    self.storage.enqueue(chat_id, "Діалог веде менеджер. Ваше повідомлення передано." if clean else "Діалог веде менеджер.")
+                        self.support.record(state['ticket'], 'customer', clean)
+                        self.storage.enqueue(self.manager_id, f"Звернення #{state['ticket']}\nКлієнт: {clean}",
+                                             self.support.buttons(state['ticket']), ticket=state['ticket'])
+                    else:
+                        self.storage.enqueue(chat_id, 'Надішліть текстове повідомлення менеджеру.',
+                                             self.support.customer_buttons(state['ticket']), ticket=state['ticket'])
                     return
                 if clean == '/manager':
                     self._handoff(chat_id)
@@ -124,7 +138,9 @@ class Dialogs:
             ('Написати менеджеру', 'shop:manager'),
         ]
         if chat_id == self.manager_id:
-            buttons.append(('Звернення', 'shop:tickets'))
+            buttons.append(('Кабінет менеджера', 'shop:tickets'))
+        elif (state := self.storage.dialog(chat_id)) and state['ticket']:
+            buttons.append(('Моє звернення', f"client:status:{state['ticket']}"))
         return buttons
 
     def _welcome(self, chat_id: int) -> None:
@@ -167,14 +183,14 @@ class Dialogs:
 
     def _shop(self, chat_id: int, data: str) -> None:
         if data == 'shop:home':
-            self._welcome(chat_id)
+            self.storage.enqueue(chat_id, self.storefront.welcome(), self._menu(chat_id))
         elif data == 'shop:catalog':
             buttons = [(label, f'shop:category:{category}:0')
                        for category, label in self.storefront.categories()]
             buttons.append(('Головне меню', 'shop:home'))
-            self.storage.enqueue(chat_id, 'Яку тканину шукаєте? Оберіть категорію:', buttons)
+            self.storage.enqueue(chat_id, '🧵 Знайдемо тканину для вашого задуму\n\nОберіть категорію нижче — покажемо фото, характеристики й ціни.', buttons)
         elif data == 'shop:search':
-            self.storage.enqueue(chat_id, 'Напишіть, яку тканину шукаєте: «льон ivory», «бавовна синя» або точний артикул. Покажемо варіанти з каталогу.',
+            self.storage.enqueue(chat_id, '🔎 Що шукаємо?\n\nНапишіть матеріал, колір або призначення:\n• льон айворі\n• бавовна синя\n• тканина для сукні\n\nЗнаєте артикул? Просто надішліть його — відкриємо картку.',
                                  [('Каталог тканин', 'shop:catalog'), ('Головне меню', 'shop:home')])
         elif data == 'shop:manager':
             self._handoff(chat_id)
@@ -217,49 +233,22 @@ class Dialogs:
 
     def _handoff(self, chat_id: int) -> None:
         if chat_id == self.manager_id:
-            self.storage.enqueue(chat_id, "Ви менеджер магазину. Звернення клієнтів: /tickets. Відповідь: /reply НОМЕР текст.", self._menu(chat_id))
+            self.storage.enqueue(chat_id, 'Ви менеджер магазину. Відкрийте кабінет звернень.', self._menu(chat_id))
             return
         db = self.catalog.connection
+        state = self.storage.dialog(chat_id)
+        if state['ticket']:
+            self.support.show(state['ticket'], chat_id)
+            return
         ticket = db.execute("INSERT INTO tickets (chat_id) VALUES (?)", (chat_id,)).lastrowid
         db.execute("UPDATE dialogs SET mode = 'HUMAN', ticket = ? WHERE chat_id = ?", (ticket, chat_id))
         db.execute("DELETE FROM choices WHERE chat_id = ?", (chat_id,))
-        self.storage.enqueue(chat_id, f"Звернення #{ticket} передано менеджеру. Він відповість у цьому чаті.")
+        self.storage.enqueue(chat_id, f"Звернення #{ticket} передано менеджеру. Напишіть тут своє запитання. Відповідь надійде сюди.",
+                             self.support.customer_buttons(ticket), ticket=ticket)
         context = self.storage.dialog(chat_id)['context']
-        self.storage.enqueue(self.manager_id, f"Звернення #{ticket}\n{context}\nВідповідь: /reply {ticket} текст\nПовернути боту: /bot {ticket}")
-
-    def _manager(self, text: str) -> None:
-        db, send = self.catalog.connection, self.storage.enqueue
-        if text == '/tickets':
-            rows = db.execute("SELECT id FROM tickets WHERE active = 1 ORDER BY id LIMIT 50").fetchall()
-            send(self.manager_id, "Активні звернення: " + (', '.join('#' + str(r[0]) for r in rows) or 'немає'))
-            return
-        parts = text.split(maxsplit=2)
-        if len(parts) < 2 or parts[0] not in ('/reply', '/bot') or not parts[1].isdigit():
-            send(self.manager_id, "Команди: /tickets, /reply НОМЕР текст, /bot НОМЕР.")
-            return
-        row = db.execute("SELECT * FROM tickets WHERE id = ? AND active = 1", (int(parts[1]),)).fetchone()
-        if not row:
-            send(self.manager_id, "Активне звернення не знайдено.")
-            return
-        state = self.storage.dialog(row['chat_id'])
-        if not state or state['mode'] != 'HUMAN' or state['ticket'] != row['id']:
-            send(self.manager_id, "Звернення вже закрите.")
-            return
-        if parts[0] == '/bot':
-            if len(parts) != 2:
-                send(self.manager_id, "Повернення до бота: /bot НОМЕР.")
-                return
-            db.execute("UPDATE tickets SET active = 0 WHERE id = ?", (row['id'],))
-            db.execute("UPDATE dialogs SET mode = 'BOT', ticket = NULL WHERE chat_id = ?", (row['chat_id'],))
-            send(row['chat_id'], "Менеджер повернув діалог боту. Можна шукати товари.")
-            send(self.manager_id, f"Звернення #{row['id']} повернуто боту.")
-        elif len(parts) == 3 and parts[2].strip():
-            send(row['chat_id'], "Менеджер: " + parts[2])
-            context = (state['context'] + '\nМенеджер: ' + parts[2])[-self.context_limit:]
-            db.execute("UPDATE dialogs SET context = ? WHERE chat_id = ?", (context, row['chat_id']))
-            send(self.manager_id, f"Відповідь для звернення #{row['id']} збережено для надсилання.")
-        else:
-            send(self.manager_id, "Відповідь: /reply НОМЕР текст.")
+        db.execute('INSERT INTO support_context VALUES (?, ?)', (ticket, context))
+        self.storage.enqueue(self.manager_id, f"Нове звернення #{ticket}\n{context}\nВідкрийте діалог або скористайтеся Telegram «Відповісти».",
+                             self.support.buttons(ticket), ticket=ticket)
 
     def _choice(self, chat_id: int, data: str) -> None:
         db = self.catalog.connection
