@@ -60,6 +60,11 @@ def _decimal(value, field: str, *, optional: bool = False) -> str | None:
 
 
 def import_catalog(catalog: Catalog, path: str | Path) -> ImportReport:
+    return catalog.replace(parse_catalog(path))
+
+
+def parse_catalog(path: str | Path) -> list[dict]:
+    """Validate the whole file; raise ImportError with row numbers or return rows."""
     errors = []
     products = []
     seen = set()
@@ -103,6 +108,6 @@ def import_catalog(catalog: Catalog, path: str | Path) -> ImportReport:
             errors.append("Каталог порожній; імпорт скасовано.")
         if errors:
             raise ImportError(errors)
-        return catalog.replace(products)
+        return products
     finally:
         rows.close()

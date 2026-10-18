@@ -6,13 +6,13 @@
 
 [▶ Open the demo in Telegram](https://t.me/shopasisstanthvrlko_bot) · [Українська версія](README.md)
 
-The demo is a fictional Ukrainian fabric store: 20 products, four categories and licensed illustrative photos. The bot interface is in Ukrainian. Prices and stock are demo data. The bot does not take orders or reserve stock.
+The demo is a fictional Ukrainian fabric store: 20 products, four categories and licensed illustrative photos. The bot interface is in Ukrainian. Prices and stock are demo data. The bot collects purchase requests for the manager but takes no payment and does not reserve stock.
 
 ## Features
 
-- **Customers:** a category catalog with photo cards, search in Ukrainian, Russian and English with typo correction, shop and delivery info, and "Ask a manager" from any product card.
-- **Manager:** a ticket desk with active tickets, history and archive. The manager replies with a plain message or a native Telegram Reply. Each ticket gets its own Telegram topic and keeps the product context.
-- **Owner:** the catalog is replaced by one atomic CSV/XLSX import. Prices and stock come only from the database. Purchase prices and suppliers never reach customers.
+- **Customers:** a category catalog with photo cards, search in Ukrainian, Russian and English with typo correction, and shop and delivery info. From any product card a customer can ask a manager or send a purchase request (meters, phone, delivery). Photos, voice messages and files reach the manager inside the ticket. Customers rate the help after a ticket closes.
+- **Manager:** a ticket desk with the customer's name and @username, history and archive. Replies can be text, photos, files or a native Telegram Reply. Quick-reply templates and a "send product card" button work in one tap. The bot reminds the manager about unanswered tickets. Each ticket gets its own Telegram topic.
+- **Owner:** a catalog update is a file sent to the bot: it shows a change preview and makes a database backup before replacing. `/stats` shows tickets, first-response time, ratings, requests and searches that found nothing. Working hours trigger an off-hours auto-reply. Prices and stock come only from the database, and purchase prices never reach customers.
 
 ## Engineering
 
@@ -22,7 +22,7 @@ The demo is a fictional Ukrainian fabric store: 20 products, four categories and
 - An optional Anthropic integration with a daily budget, reserved in SQLite before each call.
 - A non-root Docker image with no inbound ports and a named volume.
 - CI runs `ruff` and `pytest` on Python 3.11/3.12, with and without the AI SDK.
-- 187 tests plus a 40-query search evaluation.
+- 205 tests plus a 40-query search evaluation.
 
 ## Quick start
 

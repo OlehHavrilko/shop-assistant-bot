@@ -25,7 +25,7 @@ def test_v1_outbox_migrates_without_losing_delivered_or_pending_messages(tmp_pat
             INSERT INTO outbox (chat_id,text,buttons,attempts) VALUES (10,'pending','[]',2);
         ''')
         storage = Storage(catalog.connection)
-        assert catalog.connection.execute('SELECT version FROM dialog_schema').fetchone()[0] == 3
+        assert catalog.connection.execute('SELECT version FROM dialog_schema').fetchone()[0] == 4
         pending = storage.pending()
         assert len(pending) == 1 and pending[0].text == 'pending' and pending[0].attempts == 2
         assert pending[0].photo is None

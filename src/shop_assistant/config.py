@@ -48,6 +48,7 @@ class Config:
     max_calls: int
     llm_timeout: int
     store_data_path: Path | None = None
+    reminder_minutes: int = 15
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "Config":
@@ -91,5 +92,6 @@ class Config:
             max_calls=_integer(env, "LLM_MAX_CALLS_PER_MESSAGE", 2, maximum=2),
             llm_timeout=_integer(env, "LLM_TIMEOUT_SECONDS", 15, maximum=30),
             store_data_path=Path(env.get("STORE_DATA_PATH", "examples/store.json")),
+            reminder_minutes=_integer(env, "SUPPORT_REMINDER_MINUTES", 15, minimum=0, maximum=1440),
             **prices,
         )

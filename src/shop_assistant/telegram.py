@@ -37,6 +37,17 @@ def _keyboard(buttons):
         'Усі звернення': '📥 Усі звернення',
         'Назад': '← Назад',
         'Далі': 'Далі →',
+        'Оформити заявку': '🧾 Оформити заявку',
+        'Надіслати заявку': '✅ Надіслати заявку',
+        'Скасувати заявку': '✕ Скасувати',
+        'Без коментаря': 'Без коментаря →',
+        'Шаблони відповідей': '⚡ Шаблони відповідей',
+        'Надіслати товар': '🧵 Надіслати товар',
+        'Статистика': '📊 Статистика',
+        'Оновити статистику': '🔄 Оновити статистику',
+        'Оновити каталог': '📦 Оновити каталог',
+        'Застосувати': '✅ Застосувати',
+        'Скасувати імпорт': '✕ Скасувати імпорт',
     }
     rows = []
     for label, data in buttons:
@@ -44,12 +55,46 @@ def _keyboard(buttons):
         previous = rows[-1][0].callback_data if rows and len(rows[-1]) == 1 else None
         pair = (previous is not None and
                 ((data.startswith('shop:category:') and previous.startswith('shop:category:'))
-                 or (previous == 'shop:info:delivery' and data == 'shop:info:about')))
-        if pair:
+                 or (previous == 'shop:info:delivery' and data == 'shop:info:about')
+                 or (previous == 'shop:stats' and data == 'shop:import')))
+        stars = data.startswith('client:rate:') and rows and rows[-1][0].callback_data.startswith('client:rate:')
+        if stars:
+            rows[-1].append(button)
+        elif pair:
             rows[-1].append(button)
         else:
             rows.append([button])
     return InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
+
+
+# Telegram sets `document` on GIFs too, so animation is checked first.
+MEDIA = (('photo', 'фото'), ('animation', 'GIF'), ('document', 'файл'), ('voice', 'голосове повідомлення'),
+         ('video', 'відео'), ('audio', 'аудіо'), ('video_note', 'відеоповідомлення'), ('sticker', 'стікер'))
+
+
+def _profile(user) -> dict:
+    return {'first_name': user.first_name, 'last_name': user.last_name, 'username': user.username}
+
+
+async def _download(dialogs, bot, update_id: int, message: Message):
+    """Fetch a manager's catalog file only while an import awaits it."""
+    from .manager_tools import IMPORT_LIMIT_BYTES, IMPORT_SUFFIXES
+
+    document = message.document
+    if (document is None or not dialogs.wants_upload(message.chat.id)
+            or not (document.file_name or '').lower().endswith(IMPORT_SUFFIXES)
+            or not document.file_size or document.file_size > IMPORT_LIMIT_BYTES):
+        return None
+    folder = dialogs.upload_dir
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f'{update_id}{Path(document.file_name).suffix.lower()}'
+    try:
+        await bot.download(document, destination=path, timeout=30)
+    except (TimeoutError, TelegramAPIError, OSError) as error:
+        logger.warning('Catalog upload failed: %s', type(error).__name__)
+        path.unlink(missing_ok=True)
+        return None
+    return path
 
 
 async def handle_update(dialogs, bot, update: Update) -> None:
@@ -61,7 +106,8 @@ async def handle_update(dialogs, bot, update: Update) -> None:
                 or callback.from_user.id != message.chat.id):
             return
         routing = {'thread_id': message.message_thread_id} if message.message_thread_id is not None else {}
-        await dialogs.handle(update.update_id, message.chat.id, callback_data=callback.data, **routing)
+        await dialogs.handle(update.update_id, message.chat.id, callback_data=callback.data,
+                             profile=_profile(callback.from_user), **routing)
         # Acknowledgement is cosmetic; its failure must not roll back the choice.
         with suppress(TelegramAPIError):
             await bot.answer_callback_query(callback.id)
@@ -73,7 +119,18 @@ async def handle_update(dialogs, bot, update: Update) -> None:
         routing = {'thread_id': message.message_thread_id} if message.message_thread_id is not None else {}
         if message.reply_to_message and message.reply_to_message.forum_topic_created is None:
             routing['reply_to_message_id'] = message.reply_to_message.message_id
-        await dialogs.handle(update.update_id, message.chat.id, text=message.text, private=True, **routing)
+        text = message.text
+        kind = next((label for field, label in MEDIA if getattr(message, field, None) is not None), None)
+        if kind is not None:
+            text = message.caption
+            routing.update(media=kind, message_id=message.message_id)
+            upload = await _download(dialogs, bot, update.update_id, message)
+            if upload is not None:
+                routing['upload'] = upload
+        elif message.contact is not None and message.contact.user_id == message.chat.id:
+            text = message.contact.phone_number
+        await dialogs.handle(update.update_id, message.chat.id, text=text, private=True,
+                             profile=_profile(message.from_user), **routing)
 
 
 async def deliver_pending(storage, bot, *, limit: int = 100, stop: asyncio.Event | None = None,
@@ -100,7 +157,11 @@ async def deliver_pending(storage, bot, *, limit: int = 100, stop: asyncio.Event
                                                    (outgoing.chat_id, outgoing.ticket, thread_id))
             routing = {'message_thread_id': thread_id} if thread_id is not None else {}
             photo = getattr(outgoing, 'photo', None)
-            if photo and Path(photo).is_file():
+            if getattr(outgoing, 'copy_message', None) is not None:
+                result = await bot.copy_message(chat_id=outgoing.chat_id, from_chat_id=outgoing.copy_chat,
+                                                message_id=outgoing.copy_message, reply_markup=markup,
+                                                request_timeout=15, **routing)
+            elif photo and Path(photo).is_file():
                 try:
                     result = await bot.send_photo(chat_id=outgoing.chat_id, photo=FSInputFile(photo),
                                          caption=outgoing.text, reply_markup=markup,
@@ -114,6 +175,13 @@ async def deliver_pending(storage, bot, *, limit: int = 100, stop: asyncio.Event
         except TelegramRetryAfter as error:
             storage.failed(outgoing.id, retry_after=max(error.retry_after, 1))
         except TelegramBadRequest as error:
+            if outgoing.copy_message is not None and 'not found' in error.message.lower():
+                # The sender deleted the original; a permanent copy failure must not block this chat.
+                with storage.connection:
+                    storage.connection.execute(
+                        'UPDATE outbox SET copy_chat = NULL, copy_message = NULL, text = ? WHERE id = ?',
+                        ('Файл більше недоступний: відправник його видалив.', outgoing.id))
+                continue
             # A deleted topic must not strand every future message for this chat.
             if (topics_enabled and outgoing.ticket is not None and outgoing.thread_id is None
                     and 'message thread not found' in error.message.lower()):
@@ -142,6 +210,12 @@ async def _outbox_worker(storage, bot, stop: asyncio.Event, *, topics_enabled: b
     while not stop.is_set():
         await deliver_pending(storage, bot, stop=stop, topics_enabled=topics_enabled)
         await _pause(stop, 1)
+
+
+async def _reminder_worker(dialogs, stop: asyncio.Event) -> None:
+    while not stop.is_set():
+        await dialogs.remind()
+        await _pause(stop, 60)
 
 
 async def poll_updates(dialogs, bot, stop: asyncio.Event) -> None:
@@ -193,7 +267,8 @@ async def run_bot(config, catalog) -> None:
         dialogs = Dialogs(catalog, manager_id=config.manager_id, llm=llm,
                           message_length=config.message_length, request_rate=config.request_rate,
                           rate_window=config.rate_window, context_limit=config.context_limit,
-                          storefront=Storefront(catalog, config.store_data_path))
+                          storefront=Storefront(catalog, config.store_data_path),
+                          reminder_minutes=config.reminder_minutes)
         stop = asyncio.Event()
         loop = asyncio.get_running_loop()
         bot = Bot(config.token)
@@ -208,9 +283,10 @@ async def run_bot(config, catalog) -> None:
         worker = asyncio.create_task(_outbox_worker(dialogs.storage, bot, stop,
                                                    topics_enabled=dialogs.topics_enabled))
         polling = asyncio.create_task(poll_updates(dialogs, bot, stop))
+        reminders = asyncio.create_task(_reminder_worker(dialogs, stop))
         try:
             # Worker failures must not leave a bot running without delivery.
-            done, _ = await asyncio.wait((worker, polling), return_when=asyncio.FIRST_COMPLETED)
+            done, _ = await asyncio.wait((worker, polling, reminders), return_when=asyncio.FIRST_COMPLETED)
             for task in done:
                 task.result()
         finally:
@@ -219,7 +295,7 @@ async def run_bot(config, catalog) -> None:
             results = []
             try:
                 results = await asyncio.wait_for(
-                    asyncio.gather(worker, polling, return_exceptions=True), timeout=80,
+                    asyncio.gather(worker, polling, reminders, return_exceptions=True), timeout=80,
                 )
             except TimeoutError:
                 logger.warning("Shutdown deadline reached; pending delivery remains in SQLite.")
