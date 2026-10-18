@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import re
 import secrets
 import time
@@ -7,6 +8,8 @@ from .catalog import Catalog
 from .storage import Storage
 from .storefront import Storefront
 from .support import Support
+
+logger = logging.getLogger(__name__)
 
 
 class Dialogs:
@@ -57,7 +60,9 @@ class Dialogs:
                     and self.llm is not None and not self._looks_like_sku(clean)):
                 try:
                     decision = await self.llm.resolve(clean)
-                except Exception:
+                except Exception as error:
+                    # The free storefront answers instead; only the type is logged, never the text.
+                    logger.warning("LLM resolve failed: %s", type(error).__name__)
                     decision = None
             storefront_thread = (thread_id if thread_id is not None
                                  and self.storage.topic_ticket(chat_id, thread_id) is None else None)

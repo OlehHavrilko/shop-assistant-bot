@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-
 spec = importlib.util.spec_from_file_location("free_eval_runner", Path(__file__).parents[1] / "evals/free_run.py")
 runner = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(runner)
@@ -46,10 +45,11 @@ def test_existing_report_is_preserved(tmp_path):
 
 
 def test_missing_product_photo_fails_card_validation(tmp_path):
+    import csv
+
     from shop_assistant.catalog import Catalog
     from shop_assistant.importer import import_catalog
     from shop_assistant.storefront import Storefront
-    import csv
 
     store_path = tmp_path / "store.json"
     store_path.write_text((runner.ROOT / "examples/store.json").read_text(encoding="utf-8"), encoding="utf-8")

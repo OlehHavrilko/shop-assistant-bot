@@ -8,7 +8,6 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest, TelegramNetworkError, TelegramRetryAfter
 from aiogram.types import FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -123,7 +122,7 @@ async def deliver_pending(storage, bot, *, limit: int = 100, stop: asyncio.Event
                                                (outgoing.chat_id, outgoing.ticket))
             logger.warning('Outgoing delivery delayed: TelegramBadRequest')
             storage.failed(outgoing.id, retry_after=min(3600, 5 * 2 ** min(outgoing.attempts, 9)))
-        except (TelegramAPIError, OSError, asyncio.TimeoutError) as error:
+        except (TimeoutError, TelegramAPIError, OSError) as error:
             # Exception strings may contain URLs, tokens or message contents.
             logger.warning("Outgoing delivery delayed: %s", type(error).__name__)
             storage.failed(outgoing.id, retry_after=min(3600, 5 * 2 ** min(outgoing.attempts, 9)))
@@ -155,7 +154,7 @@ async def poll_updates(dialogs, bot, stop: asyncio.Event) -> None:
         except TelegramRetryAfter as error:
             await _pause(stop, max(error.retry_after, 1))
             continue
-        except (TelegramNetworkError, OSError, asyncio.TimeoutError) as error:
+        except (TimeoutError, TelegramNetworkError, OSError) as error:
             logger.warning("Polling delayed: %s", type(error).__name__)
             await _pause(stop, retry_delay)
             retry_delay = min(retry_delay * 2, 30)
@@ -222,7 +221,7 @@ async def run_bot(config, catalog) -> None:
                 results = await asyncio.wait_for(
                     asyncio.gather(worker, polling, return_exceptions=True), timeout=80,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("Shutdown deadline reached; pending delivery remains in SQLite.")
             for result in results:
                 if isinstance(result, BaseException):

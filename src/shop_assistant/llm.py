@@ -2,11 +2,14 @@
 
 import asyncio
 import json
+import logging
 from dataclasses import asdict, dataclass
 from typing import Literal
 
 from .catalog import Catalog, normalize
 from .limits import Budget
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -86,8 +89,9 @@ class LLM:
             if len(calls) != 1 or calls[0].name not in names or not isinstance(calls[0].input, dict) or type(calls[0].id) is not str:
                 return None
             return calls[0]
-        except Exception:
+        except Exception as error:
             # Unknown outcomes keep the full reservation; no prompt or secret is logged.
+            logger.warning("LLM call failed: %s", type(error).__name__)
             return None
 
     async def resolve(self, text: str) -> SearchDecision:

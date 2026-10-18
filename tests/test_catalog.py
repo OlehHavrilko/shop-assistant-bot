@@ -10,8 +10,7 @@ import pytest
 from openpyxl import Workbook
 
 from shop_assistant.catalog import Catalog, format_product
-from shop_assistant.importer import ImportError, REQUIRED, import_catalog
-
+from shop_assistant.importer import REQUIRED, ImportError, import_catalog
 
 DEMO = Path(__file__).resolve().parents[1] / "examples" / "catalog.csv"
 

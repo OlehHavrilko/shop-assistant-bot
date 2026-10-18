@@ -1,4 +1,5 @@
 import asyncio
+import importlib.util
 import json
 from decimal import Decimal
 from types import SimpleNamespace as NS
@@ -149,6 +150,7 @@ def test_nonproduct_actions_reject_identifiers(setup, action):
     assert run(setup, client) == SearchDecision("handoff")
 
 
+@pytest.mark.skipif(importlib.util.find_spec("anthropic") is None, reason="needs the optional .[llm] extra")
 def test_official_sdk_constructor_offline(setup):
     catalog, budget = setup
     async def check():

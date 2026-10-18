@@ -1,8 +1,8 @@
-import importlib.util
 import asyncio
+import importlib.util
 import json
-from pathlib import Path
 from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace as NS
 
 import pytest
@@ -67,6 +67,7 @@ def test_paid_run_never_overwrites_existing_output(tmp_path, monkeypatch):
     assert sentinel.read_text(encoding="utf-8") == "preserve"
 
 
+@pytest.mark.skipif(importlib.util.find_spec("anthropic") is None, reason="needs the optional .[llm] extra")
 def test_report_pipeline_with_real_adapter_and_offline_provider(tmp_path, monkeypatch):
     """Verify reporting and budget plumbing, not real-model accuracy."""
     cases = runner.load_cases(runner.ROOT / "evals/cases.json")

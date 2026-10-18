@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -48,6 +48,8 @@ def storefront(tmp_path):
     ("тканина для сукні", ["00123", "123", "COT-010"]),
     ("льон", ["00123", "123"]),
     ("льон неіснуючий", []), ("шовк", []), ("покажи тканину", []),
+    ("льон айвори", ["00123"]), ("хлопок сыний", ["COT-010"]), ("бавовна", ["COT-010"]),
+    ("вовна", []), ("лльон", ["00123", "123"]),
     ("", []), ("?", []),
 ])
 def test_free_search_and_ambiguity(storefront, text, skus):
@@ -110,7 +112,7 @@ def test_missing_metadata_preserves_legacy_catalog(storefront):
 
 def test_caption_limit_handles_long_unicode_facts(storefront):
     product = Product("😀" * 200, "😀" * 200, "😀" * 200, Decimal("100.00"),
-                      Decimal("1.00"), datetime.now(timezone.utc))
+                      Decimal("1.00"), datetime.now(UTC))
     assert len(storefront.card(product).encode("utf-16-le")) // 2 <= 1024
 
 

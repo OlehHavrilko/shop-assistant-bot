@@ -6,7 +6,6 @@ from shop_assistant.catalog import Catalog
 from shop_assistant.importer import import_catalog
 from shop_assistant.storefront import Storefront
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
