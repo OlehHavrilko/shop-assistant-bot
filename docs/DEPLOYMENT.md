@@ -1,9 +1,8 @@
 # Розгортання на Linux / VPS
 
 Інструкція для одного процесу бота на сервері з Docker і Compose. Образ перевірено
-на Linux ARM64. Збирання, залежності, імпорт, офлайн-eval і збереження каталогу
-в volume перевірено; реальний Telegram ще потребує тестового токена й ручного
-тесту. Адреси сервера, SSH-реквізити й секрети до репозиторію не додаються.
+на Linux ARM64; демо-бот працює саме так на VPS. Адреси сервера, SSH-реквізити
+й секрети до репозиторію не додаються.
 
 ## Підготовка й запуск
 
@@ -25,7 +24,7 @@
 
    Редактором на сервері задайте `TELEGRAM_BOT_TOKEN`, `MANAGER_TELEGRAM_ID`,
    `LLM_ENABLED=false`; для першого порожнього каталогу явно задайте
-   `DEMO_CATALOG_PATH=/app/examples/catalog.csv`. Наявні товари не перезаписуються.
+   `DEMO_CATALOG_PATH=/app/examples/store_catalog.csv`. Наявні товари не перезаписуються.
    Не виводьте секрети в логи або чат.
 4. Запустіть і перевірте стан:
 
@@ -34,7 +33,7 @@
    docker compose ps
    docker compose logs --tail 50 bot
    docker compose exec -T bot python -m pip check
-   docker compose exec -T bot python evals/run.py
+   docker compose exec -T bot python evals/free_run.py
    docker compose exec -T bot python -m shop_assistant --db /data/catalog.sqlite3 search --sku 00123
    ```
 
