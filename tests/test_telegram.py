@@ -32,9 +32,10 @@ def test_adapter_ignores_groups_and_passes_update_id_and_callbacks():
         await handle_update(dialogs, bot, update(1, private=False))
         dialogs.handle.assert_not_awaited()
         await handle_update(dialogs, bot, update(2, text="00123"))
-        dialogs.handle.assert_awaited_once_with(2, 100, text="00123", private=True)
+        profile = {"first_name": "Synthetic", "last_name": None, "username": None}
+        dialogs.handle.assert_awaited_once_with(2, 100, text="00123", private=True, profile=profile)
         await handle_update(dialogs, bot, update(3, callback="pick:synthetic"))
-        dialogs.handle.assert_awaited_with(3, 100, callback_data="pick:synthetic")
+        dialogs.handle.assert_awaited_with(3, 100, callback_data="pick:synthetic", profile=profile)
         bot.answer_callback_query.assert_awaited_once_with("synthetic")
     asyncio.run(scenario())
 

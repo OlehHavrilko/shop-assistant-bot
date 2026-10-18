@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "shop-assistant-bot"
-version = "1.0.0"
+version = "1.1.0"
 description = "Demonstration fabric shop catalog and Telegram assistant"
 requires-python = ">=3.11"
-dependencies = ["openpyxl==3.1.5", "aiogram==3.31.0"]
+dependencies = ["openpyxl==3.1.5", "aiogram==3.31.0", "tzdata==2026.3"]
 
 [project.optional-dependencies]
 dev = ["pytest==9.1.1", "ruff==0.16.8"]

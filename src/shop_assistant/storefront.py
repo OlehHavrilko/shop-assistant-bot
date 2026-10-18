@@ -4,9 +4,10 @@ import difflib
 import json
 import re
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, time
 from decimal import Decimal
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from shop_assistant.catalog import Catalog, Product, format_product
 
@@ -46,6 +47,17 @@ _FILLER = {
 }
 
 
+DEFAULT_QUICK_REPLIES = (
+    "Дякуємо за звернення! Перевіряю наявність і повернуся з відповіддю.",
+    "Ця тканина є в наявності. Скільки метрів вам потрібно?",
+    "Відправляємо Новою поштою протягом 1–2 робочих днів після підтвердження.",
+    "Надішлю фото рулону при денному світлі за кілька хвилин.",
+    "На жаль, цієї тканини зараз немає. Можу запропонувати схожі варіанти.",
+)
+DELIVERY_OPTIONS = ("Нова пошта", "Укрпошта", "Самовивіз")
+_DAYS = "Пн Вт Ср Чт Пт Сб Нд".split()
+
+
 def _tokens(text: str, *, query: bool = False) -> set[str]:
     words = re.findall(r"[^\W_]+", text.casefold(), flags=re.UNICODE)
     return {_ALIASES.get(word, word) for word in words if not query or word not in _FILLER}
@@ -72,6 +84,8 @@ class Storefront:
         self.shop: dict = {}
         self.metadata: dict[str, dict] = {}
         self._categories: list[tuple[str, str]] = []
+        self.quick_replies: tuple[str, ...] = DEFAULT_QUICK_REPLIES
+        self.hours: dict | None = None
         if not self.path.exists():
             return
         if self.path.stat().st_size > 500_000:
@@ -116,8 +130,41 @@ class Storefront:
                     metadata[key] = [_text(value, 60) for value in values]
                 self._photo_path(metadata["photo"])
                 self.metadata[metadata["sku"]] = metadata
+            if "quick_replies" in raw:
+                replies = raw["quick_replies"]
+                if not isinstance(replies, list) or not 1 <= len(replies) <= 10:
+                    raise ValueError("Некоректні шаблони відповідей.")
+                self.quick_replies = tuple(_text(reply, 500) for reply in replies)
+            if "working_hours" in raw:
+                self.hours = self._working_hours(raw["working_hours"])
         except (KeyError, TypeError, json.JSONDecodeError, UnicodeError) as exc:
             raise ValueError("Некоректний файл магазину.") from exc
+
+    @staticmethod
+    def _working_hours(raw) -> dict:
+        try:
+            zone = ZoneInfo(_text(raw["timezone"], 60))
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError("Невідомий часовий пояс магазину.") from exc
+        days = raw["days"]
+        if (not isinstance(days, list) or not days or len(set(days)) != len(days)
+                or any(type(day) is not int or not 1 <= day <= 7 for day in days)):
+            raise ValueError("Робочі дні — числа від 1 (Пн) до 7 (Нд).")
+        try:
+            start, end = (time.fromisoformat(_text(raw[key], 5)) for key in ("from", "to"))
+        except ValueError as exc:
+            raise ValueError("Робочий час має формат ГГ:ХХ.") from exc
+        if start >= end:
+            raise ValueError("Початок робочого дня має бути раніше кінця.")
+        label = f"{', '.join(_DAYS[day - 1] for day in sorted(days))} {start:%H:%M}–{end:%H:%M}"
+        return {"zone": zone, "days": set(days), "from": start, "to": end, "label": label}
+
+    def is_open(self, now: float) -> bool:
+        if self.hours is None:
+            return True
+        local = datetime.fromtimestamp(now, self.hours["zone"])
+        return (local.isoweekday() in self.hours["days"]
+                and self.hours["from"] <= local.time() < self.hours["to"])
 
     def _photo_path(self, filename: str) -> Path:
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*\.(?:jpg|jpeg|png|webp)", filename):

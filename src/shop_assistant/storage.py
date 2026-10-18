@@ -15,6 +15,8 @@ class Outgoing:
     photo: str | None = None
     ticket: int | None = None
     thread_id: int | None = None
+    copy_chat: int | None = None
+    copy_message: int | None = None
 
 
 class Storage:
@@ -40,14 +42,16 @@ class Storage:
             connection.execute("BEGIN")
             connection.execute("CREATE TABLE IF NOT EXISTS dialog_schema (version INTEGER NOT NULL)")
             row = connection.execute("SELECT version FROM dialog_schema").fetchone()
-            if row and row[0] not in (1, 2, 3):
+            if row and row[0] not in (1, 2, 3, 4):
                 raise ValueError("Непідтримувана версія схеми діалогів.")
             if row:
                 if row[0] == 1:
                     connection.execute("ALTER TABLE outbox ADD COLUMN photo TEXT")
                 if row[0] < 3:
                     self._support_schema()
-                    connection.execute("UPDATE dialog_schema SET version = 3")
+                if row[0] < 4:
+                    self._tools_schema()
+                    connection.execute("UPDATE dialog_schema SET version = 4")
                 return
             for sql in (
                 "CREATE TABLE dialogs (chat_id INTEGER PRIMARY KEY, mode TEXT NOT NULL DEFAULT 'BOT', ticket INTEGER, context TEXT NOT NULL DEFAULT '')",
@@ -60,7 +64,8 @@ class Storage:
             ):
                 connection.execute(sql)
             self._support_schema()
-            connection.execute("INSERT INTO dialog_schema VALUES (3)")
+            self._tools_schema()
+            connection.execute("INSERT INTO dialog_schema VALUES (4)")
 
     def _support_schema(self) -> None:
         for sql in (
@@ -77,8 +82,33 @@ class Storage:
         if self.connection.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'dialogs'").fetchone():
             self.connection.execute('INSERT OR IGNORE INTO support_context SELECT ticket, context FROM dialogs WHERE ticket IS NOT NULL')
 
+    def _tools_schema(self) -> None:
+        # v4: customer profiles, media relay, ticket timings, purchase requests,
+        # multi-step forms and search demand. Existing rows keep NULL timings.
+        # Very old test fixtures may predate the tickets table; columns are added only where missing.
+        self.connection.execute(
+            "CREATE TABLE IF NOT EXISTS tickets (id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER NOT NULL, active INTEGER NOT NULL DEFAULT 1)")
+        for table, column, kind in (
+            ("outbox", "copy_chat", "INTEGER"), ("outbox", "copy_message", "INTEGER"),
+            ("tickets", "created_at", "REAL"), ("tickets", "closed_at", "REAL"),
+            ("tickets", "first_reply_at", "REAL"), ("tickets", "last_customer_at", "REAL"),
+            ("tickets", "last_manager_at", "REAL"), ("tickets", "reminded_at", "REAL"),
+            ("tickets", "off_hours_at", "REAL"), ("tickets", "rating", "INTEGER"),
+        ):
+            existing = {row[1] for row in self.connection.execute(f"PRAGMA table_info({table})")}
+            if column not in existing:
+                self.connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
+        for sql in (
+            "CREATE TABLE IF NOT EXISTS customers (chat_id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT, username TEXT, updated_at REAL NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS leads (id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER NOT NULL, ticket INTEGER NOT NULL, sku TEXT NOT NULL, meters TEXT NOT NULL, phone TEXT NOT NULL, delivery TEXT NOT NULL, comment TEXT, created_at REAL NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS forms (chat_id INTEGER PRIMARY KEY, kind TEXT NOT NULL, step TEXT NOT NULL, data TEXT NOT NULL, created_at REAL NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS search_misses (query TEXT PRIMARY KEY, count INTEGER NOT NULL, last_at REAL NOT NULL)",
+        ):
+            self.connection.execute(sql)
+
     def enqueue(self, chat_id: int, text: str, buttons=(), *, photo: str | None = None,
-                ticket: int | None = None, thread_id: int | None = None) -> int:
+                ticket: int | None = None, thread_id: int | None = None,
+                copy: tuple[int, int] | None = None) -> int:
         if photo is not None and len(text.encode('utf-16-le')) // 2 > 1024:
             raise ValueError("Підпис фото перевищує 1024 символи Telegram.")
         # Telegram measures text in UTF-16 code units. Splitting also protects
@@ -93,10 +123,13 @@ class Storage:
             chunk += char
             units += size
         chunks.append(chunk)
+        copy_chat, copy_message = copy if copy is not None else (None, None)
         for index, part in enumerate(chunks):
             cursor = self.connection.execute(
-                "INSERT INTO outbox (chat_id, text, buttons, photo, ticket, thread_id) VALUES (?, ?, ?, ?, ?, ?)",
-                (chat_id, part, json.dumps(buttons if index == len(chunks) - 1 else ()), photo, ticket, thread_id),
+                "INSERT INTO outbox (chat_id, text, buttons, photo, ticket, thread_id, copy_chat, copy_message) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (chat_id, part, json.dumps(buttons if index == len(chunks) - 1 else ()), photo, ticket, thread_id,
+                 copy_chat, copy_message),
             )
         return cursor.lastrowid
 
@@ -109,7 +142,7 @@ class Storage:
         )
         return [Outgoing(r["id"], r["chat_id"], r["text"],
                          tuple(tuple(b) for b in json.loads(r["buttons"])), r["attempts"], r["photo"],
-                         r['ticket'], r['thread_id']) for r in rows]
+                         r['ticket'], r['thread_id'], r['copy_chat'], r['copy_message']) for r in rows]
 
     def sent(self, message_id: int, telegram_message_id: int | None = None) -> None:
         with self.connection:

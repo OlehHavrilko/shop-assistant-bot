@@ -65,19 +65,23 @@ class Catalog:
         self.close()
 
     def replace(self, rows: list[dict]) -> ImportReport:
-        loaded_at = datetime.now(UTC)
         with self.connection:
-            self.connection.execute("DELETE FROM products")
-            self.connection.executemany(
-                """INSERT INTO products VALUES (
-                    :sku, :name, :shade, :price_uah_per_m, :stock_m,
-                    :updated_at, :purchase_price_uah_per_m, :supplier
-                )""", rows,
-            )
-            self.connection.execute(
-                "INSERT OR REPLACE INTO catalog_import VALUES (1, ?, ?)",
-                (loaded_at.isoformat(), len(rows)),
-            )
+            return self.replace_in_transaction(rows)
+
+    def replace_in_transaction(self, rows: list[dict]) -> ImportReport:
+        """Replace products inside the caller's open transaction; never commits."""
+        loaded_at = datetime.now(UTC)
+        self.connection.execute("DELETE FROM products")
+        self.connection.executemany(
+            """INSERT INTO products VALUES (
+                :sku, :name, :shade, :price_uah_per_m, :stock_m,
+                :updated_at, :purchase_price_uah_per_m, :supplier
+            )""", rows,
+        )
+        self.connection.execute(
+            "INSERT OR REPLACE INTO catalog_import VALUES (1, ?, ?)",
+            (loaded_at.isoformat(), len(rows)),
+        )
         return ImportReport(len(rows), loaded_at)
 
     def search(self, *, sku: str | None = None, name: str | None = None,
