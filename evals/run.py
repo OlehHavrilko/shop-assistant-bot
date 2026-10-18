@@ -9,14 +9,14 @@ import os
 import sqlite3
 import tempfile
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from shop_assistant.catalog import Catalog, format_product
 from shop_assistant.importer import import_catalog
 from shop_assistant.limits import Budget, Tariffs
-from shop_assistant.llm import DECISION_TOOL, SEARCH_TOOL, SYSTEM, LLM
+from shop_assistant.llm import DECISION_TOOL, LLM, SEARCH_TOOL, SYSTEM
 
 ROOT = Path(__file__).resolve().parents[1]
 PRIVATE = ("purchase_price_uah_per_m", "supplier")
@@ -134,7 +134,7 @@ def score(case, decision, catalog):
 async def evaluate(cases, catalog_path, output, env):
     daily, tariffs, settings = paid_settings(env)
     output.mkdir(parents=True, exist_ok=False)
-    metadata = {"run_id": output.name, "started_at_utc": datetime.now(timezone.utc).isoformat(),
+    metadata = {"run_id": output.name, "started_at_utc": datetime.now(UTC).isoformat(),
                 "model": env["ANTHROPIC_MODEL"], "catalog_sha256": sha(catalog_path),
                 "cases_sha256": sha(env["_EVAL_CASES_PATH"]),
                 "prompt_sha256": hashlib.sha256(json.dumps(
@@ -197,7 +197,7 @@ async def evaluate(cases, catalog_path, output, env):
                         results.append(result)
             finally:
                 await llm.close()
-                metadata.update(finished_at_utc=datetime.now(timezone.utc).isoformat(),
+                metadata.update(finished_at_utc=datetime.now(UTC).isoformat(),
                                 total_cost_usd=str(sum((Decimal(r["cost_usd"]) for r in ledger_total(ledger_path).values()), Decimal(0))),
                                 status="completed" if len(results) == 40 else "incomplete")
                 meta_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")

@@ -1,6 +1,6 @@
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -65,7 +65,7 @@ class Catalog:
         self.close()
 
     def replace(self, rows: list[dict]) -> ImportReport:
-        loaded_at = datetime.now(timezone.utc)
+        loaded_at = datetime.now(UTC)
         with self.connection:
             self.connection.execute("DELETE FROM products")
             self.connection.executemany(

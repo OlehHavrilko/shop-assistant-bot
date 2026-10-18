@@ -1,13 +1,12 @@
 import csv
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from openpyxl import load_workbook
 
 from .catalog import Catalog, ImportReport
-
 
 REQUIRED = ("sku", "name", "shade", "price_uah_per_m", "stock_m", "updated_at")
 PRIVATE = ("purchase_price_uah_per_m", "supplier")
@@ -77,7 +76,7 @@ def import_catalog(catalog: Catalog, path: str | Path) -> ImportReport:
             try:
                 if len(cells) != len(header):
                     raise ValueError("кількість полів не відповідає заголовку")
-                row = dict(zip(header, cells))
+                row = dict(zip(header, cells, strict=True))
                 if any(isinstance(v, str) and v.lstrip().startswith("=") for v in cells):
                     raise ValueError("формули не підтримуються")
                 product = {field: _text(row[field], field) for field in ("sku", "name", "shade")}
@@ -91,7 +90,7 @@ def import_catalog(catalog: Catalog, path: str | Path) -> ImportReport:
                     updated_at = datetime.fromisoformat(raw_date)
                     if updated_at.tzinfo is None or "T" not in raw_date:
                         raise ValueError
-                    product["updated_at"] = updated_at.astimezone(timezone.utc).isoformat()
+                    product["updated_at"] = updated_at.astimezone(UTC).isoformat()
                 except ValueError:
                     raise ValueError("updated_at: потрібна дата ISO 8601 з часовим поясом") from None
                 product[PRIVATE[0]] = _decimal(row.get(PRIVATE[0]), PRIVATE[0], optional=True)

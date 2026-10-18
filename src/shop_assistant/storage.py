@@ -1,8 +1,8 @@
 import json
 import sqlite3
 import time
-from dataclasses import dataclass
 from contextlib import contextmanager
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)

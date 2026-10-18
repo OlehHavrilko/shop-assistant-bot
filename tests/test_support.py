@@ -6,14 +6,14 @@ from unittest.mock import AsyncMock
 import pytest
 from aiogram.exceptions import TelegramBadRequest, TelegramNetworkError
 from aiogram.methods import SendMessage
+from test_dialogs import messages, run
+from test_telegram import update
 
 from shop_assistant.catalog import Catalog
 from shop_assistant.dialogs import Dialogs
-from shop_assistant.storage import Storage
 from shop_assistant.importer import import_catalog
+from shop_assistant.storage import Storage
 from shop_assistant.telegram import deliver_pending, handle_update
-from test_dialogs import messages, run
-from test_telegram import update
 
 
 @pytest.fixture

@@ -1,5 +1,6 @@
 """Public shop presentation and deterministic search; prices always come from SQLite."""
 
+import difflib
 import json
 import re
 from dataclasses import replace
@@ -8,7 +9,6 @@ from decimal import Decimal
 from pathlib import Path
 
 from shop_assistant.catalog import Catalog, Product, format_product
-
 
 _ALIASES = {
     "linen": "льон", "лен": "льон", "лён": "льон", "льону": "льон",
@@ -162,7 +162,7 @@ class Storefront:
         query = _tokens(text, query=True)
         if not query:
             return []
-        found = []
+        indexed = []
         for product in self._products():
             metadata = self.metadata.get(product.sku, {})
             words = [product.name, product.shade, product.sku]
@@ -170,8 +170,22 @@ class Storefront:
                 words.extend([metadata["category"], dict(self._categories)[metadata["category"]],
                               metadata["composition"], metadata["description"],
                               *metadata["uses"], *metadata["tags"]])
-            if query <= _tokens(" ".join(words)):
-                found.append(product)
+            indexed.append((product, _tokens(" ".join(words))))
+        found = [product for product, words in indexed if query <= words]
+        if not found:
+            # Typo tolerance: only unknown words of 4+ letters are replaced, and only
+            # by a close catalog word with the same first letter.
+            vocabulary = set().union(*(words for _, words in indexed))
+            vocabulary |= {alias for alias, word in _ALIASES.items() if word in vocabulary}
+            corrected = set()
+            for word in query:
+                # Same first letter: «вовна» (wool) must not become «бавовна» (cotton).
+                candidates = [known for known in vocabulary if known[0] == word[0]]
+                close = (difflib.get_close_matches(word, candidates, n=1, cutoff=0.8)
+                         if word not in vocabulary and len(word) >= 4 else [])
+                corrected.add(_ALIASES.get(close[0], close[0]) if close else word)
+            if corrected != query:
+                found = [product for product, words in indexed if corrected <= words]
         return found[:limit]
 
     def card(self, product: Product) -> str:

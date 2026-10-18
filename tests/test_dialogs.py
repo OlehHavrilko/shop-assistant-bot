@@ -12,7 +12,6 @@ from shop_assistant.importer import import_catalog
 from shop_assistant.storage import Storage
 from shop_assistant.storefront import Storefront
 
-
 DEMO = Path(__file__).resolve().parents[1] / 'examples' / 'catalog.csv'
 
 

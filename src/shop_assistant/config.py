@@ -1,8 +1,8 @@
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Mapping
 
 
 def _integer(env: Mapping[str, str], name: str, default: int, minimum=1, maximum=10**15) -> int:

@@ -117,11 +117,13 @@ def test_stop_during_delivery_leaves_backlog_for_restart(tmp_path):
 
 def test_initialization_failure_closes_acquired_llm(tmp_path, monkeypatch):
     from dataclasses import replace
-    from shop_assistant.config import Config
-    from shop_assistant.telegram import run_bot
+
     from test_config import paid_env
+
     import shop_assistant.dialogs
     import shop_assistant.llm
+    from shop_assistant.config import Config
+    from shop_assistant.telegram import run_bot
 
     close = AsyncMock()
     monkeypatch.setattr(shop_assistant.llm, "LLM", lambda *args, **kwargs: SimpleNamespace(close=close))

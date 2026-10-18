@@ -7,7 +7,7 @@ import json
 import tempfile
 from collections import Counter
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -42,7 +42,7 @@ def load_cases(path):
 
 def check_card(store, product, source):
     card = store.card(product)
-    expected_date = datetime.fromisoformat(source["updated_at"]).astimezone(timezone.utc)
+    expected_date = datetime.fromisoformat(source["updated_at"]).astimezone(UTC)
     expected_stock = Decimal(source["stock_m"]) if source["stock_m"] else None
     facts_ok = (product.name == source["name"] and product.shade == source["shade"]
                 and product.price_uah_per_m == Decimal(source["price_uah_per_m"])
@@ -104,7 +104,7 @@ def run(cases_path, catalog_path, store_path):
             results = [score(case, store) for case in cases]
     return {"mode": "deterministic-free-demo", "model_calls": 0,
             "scope": "Actual local search, intent routing, catalog facts, card privacy and local photos; no generative model or real Telegram delivery evaluated.",
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
             "inputs_sha256": {name: hashlib.sha256(Path(path).read_bytes()).hexdigest()
                               for name, path in (("cases", cases_path), ("catalog", catalog_path), ("store", store_path))},
             "assets_pass": assets_ok, "cards": cards, "cases": results,

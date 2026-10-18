@@ -1,11 +1,11 @@
 import argparse
-import sqlite3
-from pathlib import Path
-from zipfile import BadZipFile
-from xml.etree.ElementTree import ParseError
-import csv
 import asyncio
+import csv
+import sqlite3
 import sys
+from pathlib import Path
+from xml.etree.ElementTree import ParseError
+from zipfile import BadZipFile
 
 from .catalog import Catalog, format_product
 from .importer import import_catalog
@@ -64,7 +64,7 @@ def entrypoint() -> None:
     try:
         raise SystemExit(main())
     except KeyboardInterrupt:
-        raise SystemExit(0)
+        raise SystemExit(0) from None
     except Exception as error:
         # SDK errors may contain connection URLs; never echo exception strings.
         raise SystemExit(f"Запуск зупинено: {type(error).__name__}. Перевірте налаштування та доступність сервісів.") from None

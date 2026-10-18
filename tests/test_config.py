@@ -4,7 +4,6 @@ import pytest
 
 from shop_assistant.config import Config
 
-
 BASE = {"TELEGRAM_BOT_TOKEN": "123456:synthetic_test_token", "MANAGER_TELEGRAM_ID": "123"}
 
 
@@ -50,9 +49,10 @@ def test_paid_mode_requires_explicit_key_model_and_all_tariffs():
 
 
 def test_bootstrap_only_imports_explicit_catalog_into_empty_db(tmp_path):
+    from test_catalog import DEMO
+
     from shop_assistant.__main__ import bootstrap_catalog
     from shop_assistant.catalog import Catalog
-    from test_catalog import DEMO
 
     path = tmp_path / "catalog.sqlite3"
     with Catalog(path) as catalog:

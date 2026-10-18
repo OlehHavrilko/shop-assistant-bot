@@ -3,8 +3,8 @@
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from decimal import Decimal, ROUND_CEILING
+from datetime import UTC, datetime
+from decimal import ROUND_CEILING, Decimal
 from pathlib import Path
 from uuid import uuid4
 
@@ -29,7 +29,7 @@ class Tariffs:
         counts = (input_tokens, output_tokens, cache_write_tokens, cache_read_tokens)
         if any(type(n) is not int or n < 0 for n in counts):
             raise ValueError("Некоректний usage.")
-        return sum((n * rate for n, rate in zip(counts, vars(self).values())), Decimal(0)) / 1_000_000
+        return sum((n * rate for n, rate in zip(counts, vars(self).values(), strict=True)), Decimal(0)) / 1_000_000
 
 
 class Budget:
@@ -65,7 +65,7 @@ class Budget:
 
     @staticmethod
     def _day() -> str:
-        return datetime.now(timezone.utc).date().isoformat()
+        return datetime.now(UTC).date().isoformat()
 
     def reserve(self, max_input_tokens: int, max_output_tokens: int) -> str | None:
         if any(type(n) is not int or not 1 <= n <= 1_000_000 for n in (max_input_tokens, max_output_tokens)):

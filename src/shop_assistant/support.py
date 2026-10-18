@@ -1,7 +1,7 @@
 """Ticket screens and routing; Telegram transport remains in the outbox worker."""
 
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 class Support:
@@ -73,7 +73,7 @@ class Support:
                 delivery = ' · доставлено в Telegram' if message['delivered'] else ' · очікує доставки'
                 if not message['delivered'] and message['attempts']:
                     delivery = ' · доставка затримується, повторюємо'
-            stamp = datetime.fromtimestamp(message['created_at'], timezone.utc).strftime('%d.%m %H:%M UTC')
+            stamp = datetime.fromtimestamp(message['created_at'], UTC).strftime('%d.%m %H:%M UTC')
             self.storage.enqueue(recipient, f"{role} · {stamp}{delivery}:\n{message['text']}", ticket=number)
         buttons = []
         if len(rows) > 6:
